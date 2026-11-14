@@ -188,3 +188,60 @@ class BuildReport(BaseModel):
     error: str
     chapters: list[dict]
     issues: list[dict]
+
+
+# ============================================================
+# 课程阅读规划
+# ============================================================
+
+class ObjectiveIn(BaseModel):
+    code: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    subject: str = Field(min_length=1)
+    stage: str = ""
+    description: str = ""
+    prereq_codes: list[str] = Field(default_factory=list)
+
+
+class ObjectiveOut(BaseModel):
+    objective_id: int
+    code: str
+    title: str
+    subject: str
+    stage: str
+    description: str
+    prereq_codes: list[str] = Field(default_factory=list)
+    in_cycle: bool = False
+
+
+class ChapterMetricIn(BaseModel):
+    edition_id: int
+    chapter_code: str
+    reading_length: int | None = Field(default=None, ge=1)
+
+
+class ChapterLinkIn(BaseModel):
+    objective_code: str
+    edition_id: int
+    chapter_code: str
+    weight: float = Field(default=1.0, gt=0)
+    origin: str = "manual"  # manual | search_candidate
+
+
+class ChapterLinkReview(BaseModel):
+    status: str  # approved | rejected
+
+
+class PlanCreate(BaseModel):
+    name: str = Field(min_length=1)
+    objective_codes: list[str] = Field(min_length=1)
+    reading_budget: int = Field(ge=1)
+    edition_ids: list[int] = Field(default_factory=list)  # 空=目标学科全部现行版
+    locked_required: list[dict] = Field(default_factory=list)   # [{edition_id, chapter_code}]
+    locked_known: list[dict] = Field(default_factory=list)      # [{edition_id, chapter_code}]
+
+
+class PlanRecompute(BaseModel):
+    reading_budget: int | None = Field(default=None, ge=1)
+    locked_required: list[dict] | None = None
+    locked_known: list[dict] | None = None

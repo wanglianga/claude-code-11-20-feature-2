@@ -7,12 +7,16 @@ import Citations from './pages/Citations.jsx'
 import EditorBuild from './pages/EditorBuild.jsx'
 import EditorSynonyms from './pages/EditorSynonyms.jsx'
 import EditorReplacements from './pages/EditorReplacements.jsx'
+import PlanningObjectives from './pages/PlanningObjectives.jsx'
+import ReadingPlans from './pages/ReadingPlans.jsx'
 
 function Layout({ children }) {
   const { user, logout } = useAuth()
   const tabs = [
     { to: '/search', label: '教材检索', roles: ['teacher', 'editor'] },
     { to: '/citations', label: '引用核查', roles: ['teacher', 'editor'] },
+    { to: '/planning/objectives', label: '目标与覆盖审核', roles: ['teacher'] },
+    { to: '/planning/plans', label: '阅读规划', roles: ['teacher'] },
     { to: '/editor/build', label: '构建监控', roles: ['editor'] },
     { to: '/editor/synonyms', label: '同义词审核', roles: ['editor'] },
     { to: '/editor/replacements', label: '版本替代', roles: ['editor'] },
@@ -54,6 +58,8 @@ export default function App() {
       <Route path="/search" element={<Protected><Search /></Protected>} />
       <Route path="/units/:id" element={<Protected><UnitView /></Protected>} />
       <Route path="/citations" element={<Protected><Citations /></Protected>} />
+      <Route path="/planning/objectives" element={<Protected><PlanningObjectives /></Protected>} />
+      <Route path="/planning/plans" element={<Protected><ReadingPlans /></Protected>} />
       <Route path="/editor/build" element={<Protected editorOnly><EditorBuild /></Protected>} />
       <Route path="/editor/synonyms" element={<Protected editorOnly><EditorSynonyms /></Protected>} />
       <Route path="/editor/replacements" element={<Protected editorOnly><EditorReplacements /></Protected>} />

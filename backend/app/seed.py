@@ -104,6 +104,10 @@ def seed_all() -> None:
         _synonym(conn, "数学", "正比例", "正比关系", "pending")
         conn.commit()
 
+    # 6. 课程阅读规划演示数据（目标、先修回路、覆盖审核样本与六个计划样本）
+    from .seed_planning import seed_planning
+    seed_planning()
+
 
 def _edition_id(conn, generation_id: int) -> int:
     return conn.execute(

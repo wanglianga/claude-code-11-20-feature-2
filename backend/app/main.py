@@ -13,13 +13,14 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import importer, search as searchmod
+from . import importer, planning, search as searchmod
 from .config import settings
 from .db import init_schema, tx
 from .models import (
-    BuildReport, BuildRequest, CitationCreate, CitationOut, LoginRequest,
-    ReplacementIn, SearchRequest, SynonymIn, SynonymOut, TextbookOut,
-    UnitOut, UserOut,
+    BuildReport, BuildRequest, ChapterLinkIn, ChapterLinkReview, ChapterMetricIn,
+    CitationCreate, CitationOut, LoginRequest, ObjectiveIn, PlanCreate,
+    PlanRecompute, ReplacementIn, SearchRequest, SynonymIn, SynonymOut,
+    TextbookOut, UnitOut, UserOut,
 )
 
 
@@ -60,6 +61,13 @@ def current_user(authorization: str = Header(default="")) -> dict:
 def require_editor(user: dict = Depends(current_user)) -> dict:
     if user["role"] != "editor":
         raise HTTPException(403, "仅编辑可执行该操作")
+    return user
+
+
+def require_teacher(user: dict = Depends(current_user)) -> dict:
+    # 教研员/教师侧操作：目标录入、覆盖关联审核、阅读规划
+    if user["role"] != "teacher":
+        raise HTTPException(403, "仅教研员（教师账号）可执行该操作")
     return user
 
 
@@ -434,6 +442,10 @@ def approve_replacement(request_id: int, editor: dict = Depends(require_editor))
             "UPDATE replacement_requests SET status='approved', decided_by=%s, "
             "decided_at=now() WHERE request_id=%s",
             (editor["username"], request_id))
+        # 教材停用联动：未确认阅读计划转待复核，已确认计划保留出处仅提示更新
+        planning.mark_editions_deprecated(
+            conn, [o["edition_id"] for o in old],
+            req["reason"] or "已由编辑批准的新版替代")
         conn.commit()
         return {"ok": True, "isbn": req["isbn"],
                 "active_generation_id": new_gen["generation_id"]}
@@ -464,7 +476,161 @@ def retire_generation(generation_id: int, editor: dict = Depends(require_editor)
         conn.commit()
     if not row:
         raise HTTPException(409, "仅已归档(archived)的代次可退役")
+    with tx() as conn:
+        planning.mark_editions_deprecated(
+            conn, [row["edition_id"]], "计划固定代次已退役，出处原文不可访问")
+        conn.commit()
     return dict(row)
+
+
+# ---------------------------------------------------------------- 课程阅读规划
+
+def _planning_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, planning.CycleError):
+        return HTTPException(422, {"message": str(exc), "cycles": exc.cycles})
+    return HTTPException(422, str(exc))
+
+
+@app.get("/api/planning/objectives")
+def planning_objectives(subject: str | None = None,
+                        user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        return planning.list_objectives(conn, subject)
+
+
+@app.post("/api/planning/objectives")
+def create_objective(req: ObjectiveIn, user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        try:
+            row = planning.create_objective(conn, req, user["username"])
+            conn.commit()
+            return row
+        except planning.PlanningError as exc:
+            raise _planning_error(exc)
+
+
+@app.get("/api/planning/cycles")
+def planning_cycles(user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        return {"cycles": planning._all_cycles(conn)}
+
+
+@app.get("/api/planning/editions/{edition_id}/metrics")
+def edition_metrics(edition_id: int, user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        return planning.list_metrics(conn, edition_id)
+
+
+@app.post("/api/planning/metrics")
+def set_metric(req: ChapterMetricIn, user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        try:
+            row = planning.upsert_metric(
+                conn, req.edition_id, req.chapter_code,
+                req.reading_length, user["username"])
+            conn.commit()
+            return row
+        except planning.PlanningError as exc:
+            raise _planning_error(exc)
+
+
+@app.get("/api/planning/links")
+def planning_links(objective_code: str | None = None, status: str = "all",
+                   user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        return planning.list_links(conn, objective_code, status)
+
+
+@app.post("/api/planning/links")
+def create_link(req: ChapterLinkIn, user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        try:
+            row = planning.upsert_link(conn, req.model_dump(), user["username"])
+            conn.commit()
+            return row
+        except planning.PlanningError as exc:
+            raise _planning_error(exc)
+
+
+@app.get("/api/planning/objectives/{objective_code}/candidates")
+def link_candidates(objective_code: str,
+                    edition_ids: list[int] = Query(default=[]),
+                    user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        try:
+            return planning.chapter_candidates(conn, objective_code, edition_ids)
+        except planning.PlanningError as exc:
+            raise _planning_error(exc)
+
+
+@app.post("/api/planning/links/{link_id}/review")
+def review_link(link_id: int, req: ChapterLinkReview,
+                user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        try:
+            row = planning.review_link(conn, link_id, req.status, user["username"])
+            conn.commit()
+            return row
+        except planning.PlanningError as exc:
+            raise _planning_error(exc)
+
+
+@app.get("/api/planning/plans")
+def list_plans(user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        return planning.list_plans(conn)
+
+
+@app.post("/api/planning/plans")
+def create_plan(req: PlanCreate, user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        try:
+            return planning.create_plan(conn, req, user["username"])
+        except planning.CycleError as exc:
+            raise _planning_error(exc)
+        except planning.PlanningError as exc:
+            raise _planning_error(exc)
+
+
+@app.get("/api/planning/plans/{plan_id}")
+def get_plan(plan_id: int, user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        try:
+            return planning.get_plan(conn, plan_id)
+        except planning.PlanningError as exc:
+            raise HTTPException(404, str(exc))
+
+
+@app.post("/api/planning/plans/{plan_id}/cancel")
+def cancel_plan(plan_id: int, user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        try:
+            row = planning.cancel_plan(conn, plan_id)
+            return row
+        except planning.PlanningError as exc:
+            raise _planning_error(exc)
+
+
+@app.post("/api/planning/plans/{plan_id}/recompute")
+def recompute_plan(plan_id: int, req: PlanRecompute,
+                   user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        try:
+            return planning.recompute_plan(conn, plan_id,
+                                           req.model_dump(exclude_none=True),
+                                           user["username"])
+        except planning.PlanningError as exc:
+            raise _planning_error(exc)
+
+
+@app.post("/api/planning/plans/{plan_id}/confirm")
+def confirm_plan(plan_id: int, user: dict = Depends(require_teacher)):
+    with tx() as conn:
+        try:
+            row = planning.confirm_plan(conn, plan_id)
+            return row
+        except planning.PlanningError as exc:
+            raise _planning_error(exc)
 
 
 # ---------------------------------------------------------------- 前端静态资源

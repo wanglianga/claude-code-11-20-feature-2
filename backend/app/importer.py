@@ -234,6 +234,20 @@ def _parse_chapter(conn, edition_id: int, generation_id: int, chapter: dict,
          f"{chapter['code']} {chapter['title']}", chapter.get("ordinal", 0),
          json.dumps({"units": chapter_snapshot_units}, ensure_ascii=False)),
     )
+    # 数据包可声明章节阅读篇幅（字/词数）；未声明则保持 NULL，
+    # 规划时视为“篇幅未知”，不可自动选入，绝不当作零成本。
+    if chapter.get("reading_length") is not None:
+        length = chapter["reading_length"]
+        if not isinstance(length, int) or length <= 0:
+            raise BuildError(f"章节 {code} 的 reading_length 必须为正整数")
+        conn.execute(
+            "INSERT INTO chapter_metrics(edition_id, chapter_code, reading_length, "
+            "source, updated_by) VALUES (%s,%s,%s,'payload','importer') "
+            "ON CONFLICT (edition_id, chapter_code) DO UPDATE SET "
+            "reading_length=EXCLUDED.reading_length, source='payload', "
+            "updated_by='importer', updated_at=now()",
+            (edition_id, code, length),
+        )
     _report(conn, generation_id, code, "parsed", "ok", counts)
     return counts
 

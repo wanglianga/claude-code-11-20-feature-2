@@ -247,6 +247,132 @@ CREATE TABLE IF NOT EXISTS {schema}.citation_checks (
     detail          text NOT NULL,
     checked_at      timestamptz NOT NULL DEFAULT now()
 );
+
+-- ============================================================
+-- 课程阅读规划：教学目标、先修关系、覆盖关联、章节篇幅、计划
+-- ============================================================
+
+-- 教学目标（教研员录入，先修关系另表）
+CREATE TABLE IF NOT EXISTS {schema}.learning_objectives (
+    objective_id    bigserial PRIMARY KEY,
+    code            text NOT NULL UNIQUE,
+    title           text NOT NULL,
+    subject         text NOT NULL,
+    stage           text NOT NULL DEFAULT '',
+    description     text NOT NULL DEFAULT '',
+    created_by      text NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- 目标先修关系：objective_id 的学习以 requires_objective_id 为前提
+CREATE TABLE IF NOT EXISTS {schema}.objective_prereqs (
+    objective_id            bigint NOT NULL REFERENCES {schema}.learning_objectives(objective_id)
+                            ON DELETE CASCADE,
+    requires_objective_id   bigint NOT NULL REFERENCES {schema}.learning_objectives(objective_id)
+                            ON DELETE CASCADE,
+    PRIMARY KEY (objective_id, requires_objective_id),
+    CHECK (objective_id <> requires_objective_id)
+);
+
+-- 章节篇幅：长度可能未知（reading_length IS NULL），未知篇幅不可被自动选入
+CREATE TABLE IF NOT EXISTS {schema}.chapter_metrics (
+    metric_id       bigserial PRIMARY KEY,
+    edition_id      bigint NOT NULL,
+    chapter_code    text NOT NULL,
+    reading_length  integer,
+    source          text NOT NULL DEFAULT 'manual'
+                    CHECK (source IN ('payload', 'manual')),
+    updated_by      text NOT NULL DEFAULT '',
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (edition_id, chapter_code)
+);
+
+-- 目标-章节覆盖关联：搜索命中仅为候选(pending)，教师审核通过(approved)后才可用于规划
+CREATE TABLE IF NOT EXISTS {schema}.objective_chapter_links (
+    link_id         bigserial PRIMARY KEY,
+    objective_id    bigint NOT NULL REFERENCES {schema}.learning_objectives(objective_id)
+                    ON DELETE CASCADE,
+    edition_id      bigint NOT NULL,
+    chapter_code    text NOT NULL,
+    weight          numeric(10,2) NOT NULL DEFAULT 1 CHECK (weight > 0),
+    status          text NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'approved', 'rejected')),
+    origin          text NOT NULL DEFAULT 'manual'
+                    CHECK (origin IN ('manual', 'search_candidate')),
+    evidence        jsonb NOT NULL DEFAULT '{{}}'::jsonb,
+    created_by      text NOT NULL,
+    reviewed_by     text,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    reviewed_at     timestamptz,
+    UNIQUE (objective_id, edition_id, chapter_code)
+);
+CREATE INDEX IF NOT EXISTS idx_links_objective ON {schema}.objective_chapter_links (objective_id);
+CREATE INDEX IF NOT EXISTS idx_links_status ON {schema}.objective_chapter_links (status);
+
+-- 阅读规划主表：目标集合、教材版本与已审关联在创建时整体快照固定
+CREATE TABLE IF NOT EXISTS {schema}.reading_plans (
+    plan_id             bigserial PRIMARY KEY,
+    name                text NOT NULL,
+    subject             text NOT NULL,
+    reading_budget      integer NOT NULL CHECK (reading_budget > 0),
+    status              text NOT NULL DEFAULT 'draft'
+                        CHECK (status IN ('draft', 'queued', 'running', 'ready',
+                                          'failed', 'cancelled', 'confirmed',
+                                          'needs_review')),
+    created_by          text NOT NULL,
+    -- 计划固定的教材版本（edition_id 集合）与创建时刻已审关联快照
+    edition_ids         bigint[] NOT NULL DEFAULT '{{}}',
+    links_snapshot      jsonb NOT NULL DEFAULT '[]'::jsonb,
+    objectives_snapshot jsonb NOT NULL DEFAULT '[]'::jsonb,
+    -- 创建时刻章节目录与篇幅快照（含未知篇幅），重算沿用，不随后续改价变动
+    metrics_snapshot    jsonb NOT NULL DEFAULT '[]'::jsonb,
+    -- 计算结果
+    selected_chapters   jsonb NOT NULL DEFAULT '[]'::jsonb,
+    total_length        integer NOT NULL DEFAULT 0,
+    covered_objective_ids  bigint[] NOT NULL DEFAULT '{{}}',
+    uncovered           jsonb NOT NULL DEFAULT '[]'::jsonb,
+    warnings            jsonb NOT NULL DEFAULT '[]'::jsonb,
+    algorithm_note      text NOT NULL DEFAULT '',
+    -- 后台作业控制：计算令牌与取消标志，过期作业不得覆盖当前选择
+    job_token           uuid,
+    cancel_requested    boolean NOT NULL DEFAULT false,
+    error               text NOT NULL DEFAULT '',
+    -- 停用联动
+    review_reason       text NOT NULL DEFAULT '',
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    computed_at         timestamptz,
+    confirmed_at        timestamptz
+);
+CREATE INDEX IF NOT EXISTS idx_plans_status ON {schema}.reading_plans (status);
+
+-- 计划内目标（计划创建时固定，重算只采用同一组目标/已审资料）
+CREATE TABLE IF NOT EXISTS {schema}.plan_objectives (
+    plan_id         bigint NOT NULL REFERENCES {schema}.reading_plans(plan_id) ON DELETE CASCADE,
+    objective_id    bigint NOT NULL,
+    PRIMARY KEY (plan_id, objective_id)
+);
+
+-- 教研员锁定：必读章节(required)与学生已有基础(already_known)
+CREATE TABLE IF NOT EXISTS {schema}.plan_locked_chapters (
+    id              bigserial PRIMARY KEY,
+    plan_id         bigint NOT NULL REFERENCES {schema}.reading_plans(plan_id) ON DELETE CASCADE,
+    edition_id      bigint NOT NULL,
+    chapter_code    text NOT NULL,
+    lock_type       text NOT NULL CHECK (lock_type IN ('required', 'already_known')),
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (plan_id, edition_id, chapter_code, lock_type)
+);
+
+-- 计划状态流转留痕（取消、停用触发复核等）
+CREATE TABLE IF NOT EXISTS {schema}.plan_events (
+    event_id        bigserial PRIMARY KEY,
+    plan_id         bigint NOT NULL REFERENCES {schema}.reading_plans(plan_id) ON DELETE CASCADE,
+    event_type      text NOT NULL,
+    detail          text NOT NULL DEFAULT '',
+    created_by      text NOT NULL DEFAULT '',
+    created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_plan_events ON {schema}.plan_events (plan_id);
 """
 
 

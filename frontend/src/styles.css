@@ -172,3 +172,53 @@ details summary { cursor: pointer; color: var(--primary); margin: 8px 0; }
   background: #16233f; color: #fff; padding: 12px 20px; border-radius: 10px;
   box-shadow: 0 6px 20px rgba(0,0,0,0.25); max-width: 80vw;
 }
+
+/* 课程阅读规划 */
+.plan-queued, .plan-running { background: #e8eefc; color: var(--primary); }
+.plan-ready { background: #e2f5ea; color: var(--ok); }
+.plan-failed, .plan-cancelled { background: #fbe4e0; color: var(--bad); }
+.plan-confirmed { background: #e2f5ea; color: var(--ok); }
+.plan-needs_review { background: #fdeede; color: var(--warn); }
+.badge.ok { background: #e2f5ea; color: var(--ok); }
+.badge.bad { background: #fbe4e0; color: var(--bad); }
+.text-bad { color: var(--bad); }
+.text-ok { color: var(--ok); }
+.row-selected { background: #f2f7ff; }
+.wide-input { min-width: 280px; flex: 1; }
+
+.cycle-card { border-color: #f0c4be; background: #fff7f6; }
+.cycle-path { font-weight: 600; color: var(--bad); margin: 6px 0; }
+.chip-danger { border-color: #f0c4be; color: var(--bad); }
+
+.obj-picker { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.lock-picker {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px;
+  border: 1px dashed var(--line); border-radius: 10px; background: #fafbfe;
+}
+.lock-tag {
+  display: inline-block; background: #eef4ff; border: 1px solid #cdddff;
+  color: #1c3f8f; border-radius: 6px; padding: 2px 8px; margin: 2px 4px 2px 0;
+}
+.plan-status-line { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.budget-line { display: flex; align-items: center; gap: 12px; margin: 10px 0; font-size: 15px; }
+.warning-list { margin: 8px 0; }
+.warn-line {
+  background: #fff6ec; border: 1px solid #ffd9a8; color: #7a4a06;
+  border-radius: 8px; padding: 8px 10px; margin: 6px 0;
+}
+.plan-actions { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.obj-cov { margin: 8px 0; }
+.obj-cov .chip { margin: 3px 4px 3px 0; }
+
+.uncovered-card {
+  border: 1px solid #f0c4be; border-radius: 10px; padding: 10px 14px;
+  margin: 8px 0; background: #fffaf9;
+}
+.uncovered-card summary { cursor: pointer; color: var(--bad); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.unc-body { margin-top: 8px; line-height: 1.9; }
+.reason-chip {
+  font-size: 12px; background: #fbe4e0; color: var(--bad);
+  border-radius: 6px; padding: 1px 8px;
+}
+.events { margin-top: 14px; }
+h4 { margin: 14px 0 8px; font-size: 14px; }
